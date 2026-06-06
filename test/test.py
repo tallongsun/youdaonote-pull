@@ -320,6 +320,15 @@ class YoudaoNotePullTest(unittest.TestCase):
         self.assertEqual(local_dir, "test/test")
         self.assertEqual(error_msg, "")
 
+        # 当指定多层文件夹不存在时。期待：创建多层文件夹
+        multi_level_dir = "test/test_parent/test_child"
+        local_dir, error_msg = youdaonote_pull._check_local_dir(
+            local_dir=multi_level_dir
+        )
+        self.assertEqual(local_dir, multi_level_dir)
+        self.assertTrue(os.path.exists(multi_level_dir))
+        self.assertEqual(error_msg, "")
+
         # 当指定文件夹存在时。期待：正常
         local_dir, error_msg = youdaonote_pull._check_local_dir(
             local_dir=test_default_dir
@@ -329,6 +338,10 @@ class YoudaoNotePullTest(unittest.TestCase):
 
         try:
             os.removedirs(test_default_dir)
+        except:
+            pass
+        try:
+            os.removedirs(multi_level_dir)
         except:
             pass
 
@@ -384,6 +397,78 @@ class YoudaoNotePullTest(unittest.TestCase):
         )
         dir_id, error_msg = youdaonote_pull._get_ydnote_dir_id(ydnote_dir="test_dir")
         self.assertEqual(dir_id, "test_dir_id")
+
+        # 指定多层目录、目录存在时。期待：返回最后一级目录 ID
+        root_dir_json = {
+            "fileEntry": {"id": "test_root_id"},
+            "entries": [
+                {
+                    "fileEntry": {
+                        "id": "test_parent_id",
+                        "name": "test_parent",
+                        "dir": True,
+                    }
+                },
+                {"fileEntry": {"id": "test_dir_id", "name": "test_dir", "dir": True}},
+            ],
+        }
+        parent_dir_json = {
+            "entries": [
+                {
+                    "fileEntry": {
+                        "id": "test_child_id",
+                        "name": "test_child",
+                        "dir": True,
+                    }
+                },
+            ],
+        }
+        youdaonote_api.http_post = Mock(
+            return_value=MockResponse(root_dir_json, 200)
+        )
+        youdaonote_api.http_get = Mock(
+            side_effect=[
+                MockResponse(root_dir_json, 200),
+                MockResponse(parent_dir_json, 200),
+            ]
+        )
+        dir_id, error_msg = youdaonote_pull._get_ydnote_dir_id(
+            ydnote_dir="test_parent/test_child"
+        )
+        self.assertEqual(dir_id, "test_child_id")
+        self.assertEqual(error_msg, "")
+
+        # 指定多层目录、使用 Windows 分隔符时。期待：正常拆分目录
+        youdaonote_api.http_post = Mock(
+            return_value=MockResponse(root_dir_json, 200)
+        )
+        youdaonote_api.http_get = Mock(
+            side_effect=[
+                MockResponse(root_dir_json, 200),
+                MockResponse(parent_dir_json, 200),
+            ]
+        )
+        dir_id, error_msg = youdaonote_pull._get_ydnote_dir_id(
+            ydnote_dir="test_parent\\test_child"
+        )
+        self.assertEqual(dir_id, "test_child_id")
+        self.assertEqual(error_msg, "")
+
+        # 指定多层目录、子目录不存在时。期待：提示不存在的多层路径
+        youdaonote_api.http_post = Mock(
+            return_value=MockResponse(root_dir_json, 200)
+        )
+        youdaonote_api.http_get = Mock(
+            side_effect=[
+                MockResponse(root_dir_json, 200),
+                MockResponse(parent_dir_json, 200),
+            ]
+        )
+        dir_id, error_msg = youdaonote_pull._get_ydnote_dir_id(
+            ydnote_dir="test_parent/test_missing"
+        )
+        self.assertEqual(dir_id, "")
+        self.assertEqual(error_msg, "有道云笔记指定目录不存在：test_parent/test_missing")
 
 
 if __name__ == "__main__":

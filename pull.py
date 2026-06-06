@@ -99,10 +99,21 @@ class YoudaoNotePull(object):
         # 如果指定的本地文件夹不存在，创建文件夹
         if not os.path.exists(local_dir):
             try:
-                os.mkdir(local_dir)
+                os.makedirs(local_dir)
             except:
                 return "", "请检查「{}」上层文件夹是否存在，并使用绝对路径！".format(local_dir)
         return local_dir, ""
+
+    def _split_ydnote_dir(self, ydnote_dir) -> list:
+        """
+        拆分有道云笔记目录路径
+        :param ydnote_dir:
+        :return: 目录名列表
+        """
+        ydnote_dir = ydnote_dir.replace("\\", "/").strip("/")
+        return [
+            dir_name.strip() for dir_name in ydnote_dir.split("/") if dir_name.strip()
+        ]
 
     def _get_ydnote_dir_id(self, ydnote_dir) -> Tuple[str, str]:
         """
@@ -117,13 +128,23 @@ class YoudaoNotePull(object):
         if not ydnote_dir:
             return root_dir_id, ""
 
-        dir_info = self.youdaonote_api.get_dir_info_by_id(root_dir_id)
-        for entry in dir_info["entries"]:
-            file_entry = entry["fileEntry"]
-            if file_entry["name"] == ydnote_dir:
-                return file_entry["id"], ""
+        current_dir_id = root_dir_id
+        ydnote_dir_list = self._split_ydnote_dir(ydnote_dir)
+        for index, dir_name in enumerate(ydnote_dir_list):
+            dir_info = self.youdaonote_api.get_dir_info_by_id(current_dir_id)
+            for entry in dir_info["entries"]:
+                file_entry = entry["fileEntry"]
+                if file_entry["name"] == dir_name and file_entry.get("dir", True):
+                    current_dir_id = file_entry["id"]
+                    break
+            else:
+                if len(ydnote_dir_list) == 1:
+                    return "", "有道云笔记指定顶层目录不存在"
+                return "", "有道云笔记指定目录不存在：{}".format(
+                    "/".join(ydnote_dir_list[: index + 1])
+                )
 
-        return "", "有道云笔记指定顶层目录不存在"
+        return current_dir_id, ""
 
     def get_ydnote_dir_id(self) -> Tuple[str, str]:
         """
@@ -227,9 +248,11 @@ class YoudaoNotePull(object):
             id = file_entry["id"]
             name = file_entry["name"]
             if file_entry["dir"]:
-                sub_dir = os.path.join(local_dir, name).replace("\\", "/")
+                sub_dir = os.path.join(
+                    local_dir, self._optimize_file_name(name)
+                ).replace("\\", "/")
                 if not os.path.exists(sub_dir):
-                    os.mkdir(sub_dir)
+                    os.makedirs(sub_dir)
                 self.pull_dir_by_id_recursively(id, sub_dir)
             else:
                 modify_time = file_entry["modifyTimeForSort"]
